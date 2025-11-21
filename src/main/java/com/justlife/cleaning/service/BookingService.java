@@ -2,6 +2,8 @@ package com.justlife.cleaning.service;
 
 import com.justlife.cleaning.dto.*;
 import com.justlife.cleaning.entity.*;
+import com.justlife.cleaning.exception.BusinessException;
+import com.justlife.cleaning.exception.ResourceNotFoundException;
 import com.justlife.cleaning.repository.BookingRepository;
 import com.justlife.cleaning.repository.CleanerRepository;
 import com.justlife.cleaning.repository.VehicleRepository;
@@ -68,6 +70,103 @@ public class BookingService {
         return availabilityList;
     }
 
+    @Transactional
+    public BookingResponse createBooking(BookingRequest request) {
+        validateBookingRequest(request.getDate(), request.getStartTime(), request.getDuration(), request.getCleanerCount());
+
+        LocalDateTime startDateTime = LocalDateTime.of(request.getDate(), request.getStartTime());
+        LocalDateTime endDateTime = startDateTime.plusHours(request.getDuration());
+
+        List<Vehicle> vehicles = vehicleRepository.findAll();
+
+        List<Cleaner> selectedCleaners = null;
+
+        for (Vehicle vehicle : vehicles) {
+            List<Cleaner> availableCleanersInVehicle = new ArrayList<>();
+            for (Cleaner cleaner : vehicle.getCleaners()) {
+                List<Booking> conflicts = bookingRepository.findConflictingBookings(
+                        List.of(cleaner.getId()),
+                        startDateTime.minusMinutes(BREAK_MINUTES), // Check break before
+                        endDateTime.plusMinutes(BREAK_MINUTES)     // Check break after
+                );
+
+                if (conflicts.isEmpty()) {
+                    availableCleanersInVehicle.add(cleaner);
+                }
+            }
+
+            if (availableCleanersInVehicle.size() >= request.getCleanerCount()) {
+                selectedCleaners = availableCleanersInVehicle.subList(0, request.getCleanerCount());
+                break;
+            }
+        }
+
+        if (selectedCleaners == null) {
+            throw new BusinessException("No available cleaners found for the requested time and count constraint.");
+        }
+
+        Booking booking = Booking.builder()
+                .startDateTime(startDateTime)
+                .endDateTime(endDateTime)
+                .durationHours(request.getDuration())
+                .customerName(request.getCustomerName())
+                .cleaners(new ArrayList<>(selectedCleaners))
+                .build();
+
+        Booking savedBooking = bookingRepository.save(booking);
+
+        return mapToResponse(savedBooking);
+    }
+
+    @Transactional
+    public BookingResponse updateBooking(Long id, BookingUpdateRequest request) {
+        Booking booking = bookingRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Booking not found"));
+
+        validateBookingRequest(request.getDate(), request.getStartTime(), booking.getDurationHours(), booking.getCleaners().size());
+
+        LocalDateTime newStart = LocalDateTime.of(request.getDate(), request.getStartTime());
+        LocalDateTime newEnd = newStart.plusHours(booking.getDurationHours());
+
+        List<Long> cleanerIds = booking.getCleaners().stream().map(Cleaner::getId).toList();
+
+        List<Booking> conflicts = bookingRepository.findConflictingBookings(
+                cleanerIds,
+                newStart.minusMinutes(BREAK_MINUTES),
+                newEnd.plusMinutes(BREAK_MINUTES)
+        );
+
+        boolean hasConflict = conflicts.stream().anyMatch(b -> !b.getId().equals(id));
+
+        if (hasConflict) {
+            throw new BusinessException("Selected cleaners are not available at the new time.");
+        }
+
+        booking.setStartDateTime(newStart);
+        booking.setEndDateTime(newEnd);
+
+        return mapToResponse(bookingRepository.save(booking));
+    }
+
+    private void validateBookingRequest(LocalDate date, LocalTime time, int duration, int cleanerCount) {
+        if (date.getDayOfWeek() == DayOfWeek.FRIDAY) {
+            throw new BusinessException("We do not work on Fridays.");
+        }
+
+        if (time.isBefore(WORK_START)) {
+            throw new BusinessException("Cannot start before " + WORK_START);
+        }
+
+        LocalTime endTime = time.plusHours(duration);
+        if (endTime.isAfter(WORK_END)) {
+            throw new BusinessException("Must finish before " + WORK_END);
+        }
+
+        if (duration != 2 && duration != 4) {
+            throw new BusinessException("Duration must be 2 or 4 hours.");
+        }
+    }
+
 
     private boolean isCleanerAvailable(List<Booking> bookings, LocalDate date, LocalTime requestedStart, int duration) {
         LocalDateTime reqStart = LocalDateTime.of(date, requestedStart);
@@ -96,7 +195,7 @@ public class BookingService {
         // Just returning "Available" or full list of blocks is often required.
         // For this assignment, let's return simplistic "Free" if they have NO bookings,
         // or calculated gaps. Here is a simplified gap finder for 2-hour slots.
-        
+
         List<String> slots = new ArrayList<>();
         LocalTime current = WORK_START;
         

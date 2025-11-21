@@ -82,4 +82,52 @@ class BookingServiceTest {
         assertEquals(cleaner.getId(), result.get(0).getCleanerId());
     }
 
+    @Test
+    void createBooking_ShouldThrowException_WhenStartsBefore8AM() {
+        BookingRequest request = BookingRequest.builder()
+                .date(LocalDate.of(2023, 11, 23))
+                .startTime(LocalTime.of(7, 0))
+                .duration(2)
+                .cleanerCount(1)
+                .build();
+
+        assertThrows(BusinessException.class, () -> bookingService.createBooking(request));
+    }
+
+    @Test
+    void createBooking_ShouldThrowException_WhenEndsAfter10PM() {
+        BookingRequest request = BookingRequest.builder()
+                .date(LocalDate.of(2023, 11, 23))
+                .startTime(LocalTime.of(21, 0)) // Ends at 23:00
+                .duration(2)
+                .cleanerCount(1)
+                .build();
+
+        assertThrows(BusinessException.class, () -> bookingService.createBooking(request));
+    }
+
+    @Test
+    void createBooking_ShouldSucceed_WhenCleanersAvailable() {
+        BookingRequest request = BookingRequest.builder()
+                .date(LocalDate.of(2023, 11, 23))
+                .startTime(LocalTime.of(10, 0))
+                .duration(2)
+                .cleanerCount(1)
+                .customerName("Test Customer")
+                .build();
+
+        when(vehicleRepository.findAll()).thenReturn(List.of(vehicle));
+        when(bookingRepository.findConflictingBookings(any(), any(), any())).thenReturn(Collections.emptyList());
+        when(bookingRepository.save(any(Booking.class))).thenAnswer(invocation -> {
+            Booking b = invocation.getArgument(0);
+            b.setId(1L);
+            return b;
+        });
+
+        BookingResponse response = bookingService.createBooking(request);
+
+        assertNotNull(response);
+        assertEquals(1, response.getCleanerNames().size());
+        assertEquals("John", response.getCleanerNames().get(0));
+    }
 }
