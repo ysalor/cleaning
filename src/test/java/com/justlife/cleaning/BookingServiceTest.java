@@ -73,7 +73,8 @@ class BookingServiceTest {
                 .build();
 
         when(cleanerRepository.findAllIds()).thenReturn(List.of(cleaner.getId()));
-        when(bookingRepository.findActiveBookingsForCleaner(any(), any(), any())).thenReturn(Collections.emptyList());
+        when(bookingRepository.findActiveBookingsForCleaners(anyList(), any(), any()))
+                .thenReturn(Collections.emptyList());
         when(cleanerRepository.getReferenceById(cleaner.getId())).thenReturn(cleaner);
 
         List<CleanerAvailabilityDto> result = bookingService.checkAvailability(request);
@@ -95,10 +96,12 @@ class BookingServiceTest {
                 .id(1L)
                 .startDateTime(LocalDateTime.of(2023, 11, 23, 9, 30))
                 .endDateTime(LocalDateTime.of(2023, 11, 23, 11, 30))
+                .cleaners(List.of(cleaner))
+                .customerName("Conflict test")
                 .build();
 
         when(cleanerRepository.findAllIds()).thenReturn(List.of(cleaner.getId()));
-        when(bookingRepository.findActiveBookingsForCleaner(eq(cleaner.getId()), any(), any()))
+        when(bookingRepository.findActiveBookingsForCleaners(anyList(), any(), any()))
                 .thenReturn(List.of(existing));
 
         List<CleanerAvailabilityDto> result = bookingService.checkAvailability(request);
@@ -119,10 +122,9 @@ class BookingServiceTest {
                 .build();
 
         when(cleanerRepository.findAllIds()).thenReturn(List.of(cleaner.getId()));
-        when(bookingRepository.findActiveBookingsForCleaner(eq(cleaner.getId()), any(), any()))
+        when(bookingRepository.findActiveBookingsForCleaners(anyList(), any(), any()))
                 .thenReturn(new ArrayList<>(List.of(existing)));
         when(cleanerRepository.getReferenceById(cleaner.getId())).thenReturn(cleaner);
-
 
         List<CleanerAvailabilityDto> result = bookingService.checkAvailability(request);
 

@@ -12,14 +12,6 @@ import java.util.List;
 @Repository
 public interface BookingRepository extends JpaRepository<Booking, Long> {
 
-    @Query("SELECT b FROM Booking b " +
-            "JOIN b.cleaners c " +
-            "WHERE c.id = :cleanerId " +
-            "AND b.startDateTime >= :start " +
-            "AND b.endDateTime <= :end")
-    List<Booking> findActiveBookingsForCleaner(@Param("cleanerId") Long cleanerId,
-                                               @Param("start") LocalDateTime start,
-                                               @Param("end") LocalDateTime end);
 
     @Query("SELECT b FROM Booking b " +
             "JOIN b.cleaners c " +
@@ -28,4 +20,13 @@ public interface BookingRepository extends JpaRepository<Booking, Long> {
     List<Booking> findConflictingBookings(@Param("cleanerIds") List<Long> cleanerIds,
                                           @Param("start") LocalDateTime start,
                                           @Param("end") LocalDateTime end);
+    
+    @Query("SELECT b FROM Booking b " +
+            "JOIN b.cleaners c " +
+            "WHERE c.id IN :cleanerIds " +
+            "AND b.startDateTime >= :start " +
+            "AND b.endDateTime <= :end")
+    List<Booking> findActiveBookingsForCleaners(@Param("cleanerIds") List<Long> cleanerIds,
+                                                @Param("start") LocalDateTime start,
+                                                @Param("end") LocalDateTime end);
 }

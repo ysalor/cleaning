@@ -37,16 +37,16 @@ public class BookingService {
             return Collections.emptyList();
         }
 
-        // Fetch only cleaner IDs to avoid loading full entities upfront
-        List<Long> cleanerIds = cleanerRepository.findAllIds();
         List<CleanerAvailabilityDto> availabilityList = new ArrayList<>();
 
+        // Fetch only cleaner IDs to avoid loading full entities upfront
+        List<Long> cleanerIds = cleanerRepository.findAllIds();
+
+        // Fetch all bookings for all cleaners in a single query and group them
+        Map<Long, List<Booking>> bookingsByCleaner = getBookingsByCleanerIds(cleanerIds, date);
+
         for (Long cleanerId : cleanerIds) {
-            List<Booking> bookings = bookingRepository.findActiveBookingsForCleaner(
-                    cleanerId,
-                    date.atStartOfDay(),
-                    date.atTime(LocalTime.MAX)
-            );
+            List<Booking> bookings = bookingsByCleaner.getOrDefault(cleanerId, Collections.emptyList());
 
             List<String> freeSlots;
             if (request.getStartTime() != null && request.getDuration() != null) {
@@ -54,12 +54,10 @@ public class BookingService {
                 boolean isAvailable = isCleanerAvailable(bookings, date, request.getStartTime(), request.getDuration());
                 freeSlots = isAvailable ? List.of(request.getStartTime() + " - " + request.getStartTime().plusHours(request.getDuration())) : Collections.emptyList();
             } else {
-                // List all available slots (simplified to 30 min intervals for display)
                 freeSlots = calculateFreeSlots(bookings, date);
             }
 
             if (!freeSlots.isEmpty()) {
-                // Load the cleaner only when needed to build the DTO
                 Cleaner cleaner = cleanerRepository.getReferenceById(cleanerId);
 
                 availabilityList.add(CleanerAvailabilityDto.builder()
@@ -184,7 +182,7 @@ public class BookingService {
         }
 
         for (Booking b : bookings) {
-            // Add 30 min buffer to existing booking
+            // Add break to existing booking
             LocalDateTime existingStartWithBuffer = b.getStartDateTime().minusMinutes(BREAK_MINUTES);
             LocalDateTime existingEndWithBuffer = b.getEndDateTime().plusMinutes(BREAK_MINUTES);
 
@@ -197,15 +195,9 @@ public class BookingService {
     }
 
     private List<String> calculateFreeSlots(List<Booking> bookings, LocalDate date) {
-        // Simplified logic: iterate 2-hour and 4-hour blocks could be complex.
-        // Just returning "Available" or full list of blocks is often required.
-        // For this assignment, let's return simplistic "Free" if they have NO bookings,
-        // or calculated gaps. Here is a simplified gap finder for 2-hour slots.
-
         List<String> slots = new ArrayList<>();
         LocalTime current = WORK_START;
         
-        // Sort bookings
         bookings.sort(Comparator.comparing(Booking::getStartDateTime));
 
         while (current.plusHours(2).isBefore(WORK_END) || current.plusHours(2).equals(WORK_END)) {
@@ -220,6 +212,26 @@ public class BookingService {
             current = current.plusMinutes(30);
         }
         return slots;
+    }
+
+    public Map<Long, List<Booking>> getBookingsByCleanerIds(List<Long> cleanerIds, LocalDate date) {
+        LocalDateTime start = date.atStartOfDay();
+        LocalDateTime end = date.atTime(LocalTime.MAX);
+
+        List<Booking> bookings = bookingRepository.findActiveBookingsForCleaners(
+                cleanerIds, start, end
+        );
+
+        Map<Long, List<Booking>> map = new HashMap<>();
+        for (Booking booking : bookings) {
+            booking.getCleaners().stream()
+                    .map(Cleaner::getId)
+                    .filter(cleanerIds::contains)
+                    .forEach(id -> map
+                            .computeIfAbsent(id, k -> new ArrayList<>())
+                            .add(booking));
+        }
+        return map;
     }
 
     private BookingResponse mapToResponse(Booking booking) {
