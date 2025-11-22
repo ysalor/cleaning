@@ -1,13 +1,11 @@
 package com.justlife.cleaning;
 
-import com.justlife.cleaning.dto.AvailabilityRequest;
-import com.justlife.cleaning.dto.BookingRequest;
-import com.justlife.cleaning.dto.BookingResponse;
-import com.justlife.cleaning.dto.CleanerAvailabilityDto;
+import com.justlife.cleaning.dto.*;
 import com.justlife.cleaning.entity.Booking;
 import com.justlife.cleaning.entity.Cleaner;
 import com.justlife.cleaning.entity.Vehicle;
 import com.justlife.cleaning.exception.BusinessException;
+import com.justlife.cleaning.exception.ResourceNotFoundException;
 import com.justlife.cleaning.repository.BookingRepository;
 import com.justlife.cleaning.repository.CleanerRepository;
 import com.justlife.cleaning.repository.VehicleRepository;
@@ -20,10 +18,12 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
@@ -83,10 +83,81 @@ class BookingServiceTest {
     }
 
     @Test
+    void checkAvailability_ShouldReturnEmpty_WhenSlotConflictsWithExistingBooking() {
+        AvailabilityRequest request = AvailabilityRequest.builder()
+                .date(LocalDate.of(2023, 11, 23))
+                .startTime(LocalTime.of(10, 0))
+                .duration(2)
+                .build();
+
+        Booking existing = Booking.builder()
+                .id(1L)
+                .startDateTime(LocalDateTime.of(2023, 11, 23, 9, 30))
+                .endDateTime(LocalDateTime.of(2023, 11, 23, 11, 30))
+                .build();
+
+        when(cleanerRepository.findAll()).thenReturn(List.of(cleaner));
+        when(bookingRepository.findActiveBookingsForCleaner(eq(cleaner.getId()), any(), any()))
+                .thenReturn(List.of(existing));
+
+        List<CleanerAvailabilityDto> result = bookingService.checkAvailability(request);
+
+        assertTrue(result.isEmpty());
+    }
+
+    @Test
+    void checkAvailability_ShouldListFreeSlots_WhenNoSpecificTimeProvided() {
+        AvailabilityRequest request = AvailabilityRequest.builder()
+                .date(LocalDate.of(2023, 11, 23))
+                .build();
+
+        Booking existing = Booking.builder()
+                .id(1L)
+                .startDateTime(LocalDateTime.of(2023, 11, 23, 10, 0))
+                .endDateTime(LocalDateTime.of(2023, 11, 23, 12, 0))
+                .build();
+
+        when(cleanerRepository.findAll()).thenReturn(List.of(cleaner));
+        when(bookingRepository.findActiveBookingsForCleaner(eq(cleaner.getId()), any(), any()))
+                .thenReturn(new ArrayList<>(List.of(existing)));
+
+        List<CleanerAvailabilityDto> result = bookingService.checkAvailability(request);
+
+        assertEquals(1, result.size());
+        CleanerAvailabilityDto dto = result.get(0);
+        assertEquals(cleaner.getId(), dto.getCleanerId());
+        assertFalse(dto.getAvailableTimeSlots().isEmpty());
+    }
+
+    @Test
     void createBooking_ShouldThrowException_WhenStartsBefore8AM() {
         BookingRequest request = BookingRequest.builder()
                 .date(LocalDate.of(2023, 11, 23))
                 .startTime(LocalTime.of(7, 0))
+                .duration(2)
+                .cleanerCount(1)
+                .build();
+
+        assertThrows(BusinessException.class, () -> bookingService.createBooking(request));
+    }
+
+    @Test
+    void createBooking_ShouldThrowException_WhenDurationIsInvalid() {
+        BookingRequest request = BookingRequest.builder()
+                .date(LocalDate.of(2023, 11, 23))
+                .startTime(LocalTime.of(10, 0))
+                .duration(3)
+                .cleanerCount(1)
+                .build();
+
+        assertThrows(BusinessException.class, () -> bookingService.createBooking(request));
+    }
+
+    @Test
+    void createBooking_ShouldThrowException_WhenDateIsFriday() {
+        BookingRequest request = BookingRequest.builder()
+                .date(LocalDate.of(2023, 11, 24)) // Friday
+                .startTime(LocalTime.of(10, 0))
                 .duration(2)
                 .cleanerCount(1)
                 .build();
@@ -130,4 +201,106 @@ class BookingServiceTest {
         assertEquals(1, response.getCleanerNames().size());
         assertEquals("John", response.getCleanerNames().get(0));
     }
+
+    @Test
+    void createBooking_ShouldThrowException_WhenNoAvailableCleanersInAnyVehicle() {
+        BookingRequest request = BookingRequest.builder()
+                .date(LocalDate.of(2023, 11, 23))
+                .startTime(LocalTime.of(10, 0))
+                .duration(2)
+                .cleanerCount(1)
+                .customerName("No Cleaner Customer")
+                .build();
+
+        Vehicle v = Vehicle.builder()
+                .id(2L)
+                .cleaners(List.of(cleaner))
+                .build();
+
+        when(vehicleRepository.findAll()).thenReturn(List.of(v));
+        // Always conflict so that cleaner is never available
+        when(bookingRepository.findConflictingBookings(any(), any(), any()))
+                .thenReturn(List.of(Booking.builder().id(99L).build()));
+
+        assertThrows(BusinessException.class, () -> bookingService.createBooking(request));
+    }
+
+    @Test
+    void updateBooking_ShouldUpdateTimes_WhenNoConflicts() {
+        Long bookingId = 1L;
+        LocalDate newDate = LocalDate.of(2023, 11, 23);
+        LocalTime newTime = LocalTime.of(12, 0);
+
+        Booking existing = Booking.builder()
+                .id(bookingId)
+                .startDateTime(LocalDateTime.of(2023, 11, 23, 10, 0))
+                .endDateTime(LocalDateTime.of(2023, 11, 23, 12, 0))
+                .durationHours(2)
+                .cleaners(List.of(cleaner))
+                .customerName("Update Test")
+                .build();
+
+        BookingUpdateRequest updateRequest = BookingUpdateRequest.builder()
+                .date(newDate)
+                .startTime(newTime)
+                .build();
+
+        when(bookingRepository.findById(bookingId)).thenReturn(Optional.of(existing));
+        when(bookingRepository.findConflictingBookings(anyList(), any(), any()))
+                .thenReturn(Collections.emptyList());
+        when(bookingRepository.save(any(Booking.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        BookingResponse response = bookingService.updateBooking(bookingId, updateRequest);
+
+        assertEquals(LocalDateTime.of(newDate, newTime), response.getStartDateTime());
+        assertEquals(LocalDateTime.of(newDate, newTime.plusHours(2)), response.getEndDateTime());
+    }
+
+    void updateBooking_ShouldThrowException_WhenConflictingBookingExists() {
+        Long bookingId = 1L;
+        LocalDate newDate = LocalDate.of(2023, 11, 23);
+        LocalTime newTime = LocalTime.of(12, 0);
+
+        Booking existing = Booking.builder()
+                .id(bookingId)
+                .startDateTime(LocalDateTime.of(2023, 11, 23, 10, 0))
+                .endDateTime(LocalDateTime.of(2023, 11, 23, 12, 0))
+                .durationHours(2)
+                .cleaners(List.of(cleaner))
+                .customerName("Update Conflict Test")
+                .build();
+
+        Booking conflicting = Booking.builder()
+                .id(2L)
+                .startDateTime(LocalDateTime.of(2023, 11, 23, 11, 30))
+                .endDateTime(LocalDateTime.of(2023, 11, 23, 13, 30))
+                .build();
+
+        BookingUpdateRequest updateRequest = BookingUpdateRequest.builder()
+                .date(newDate)
+                .startTime(newTime)
+                .build();
+
+        when(bookingRepository.findById(bookingId)).thenReturn(Optional.of(existing));
+        when(bookingRepository.findConflictingBookings(anyList(), any(), any()))
+                .thenReturn(List.of(conflicting));
+
+        assertThrows(BusinessException.class, () -> bookingService.updateBooking(bookingId, updateRequest));
+    }
+
+    @Test
+    void updateBooking_ShouldThrowResourceNotFound_WhenBookingDoesNotExist() {
+        Long nonExistingId = 999L;
+        BookingUpdateRequest updateRequest = BookingUpdateRequest.builder()
+                .date(LocalDate.of(2023, 11, 23))
+                .startTime(LocalTime.of(10, 0))
+                .build();
+
+        when(bookingRepository.findById(nonExistingId)).thenReturn(Optional.empty());
+
+        assertThrows(ResourceNotFoundException.class,
+                () -> bookingService.updateBooking(nonExistingId, updateRequest));
+    }
+
+
 }
