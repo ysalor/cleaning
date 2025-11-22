@@ -37,13 +37,14 @@ public class BookingService {
             return Collections.emptyList();
         }
 
-        List<Cleaner> allCleaners = cleanerRepository.findAll();
+        // Fetch only cleaner IDs to avoid loading full entities upfront
+        List<Long> cleanerIds = cleanerRepository.findAllIds();
         List<CleanerAvailabilityDto> availabilityList = new ArrayList<>();
 
-        for (Cleaner cleaner : allCleaners) {
+        for (Long cleanerId : cleanerIds) {
             List<Booking> bookings = bookingRepository.findActiveBookingsForCleaner(
-                    cleaner.getId(), 
-                    date.atStartOfDay(), 
+                    cleanerId,
+                    date.atStartOfDay(),
                     date.atTime(LocalTime.MAX)
             );
 
@@ -58,8 +59,11 @@ public class BookingService {
             }
 
             if (!freeSlots.isEmpty()) {
+                // Load the cleaner only when needed to build the DTO
+                Cleaner cleaner = cleanerRepository.getReferenceById(cleanerId);
+
                 availabilityList.add(CleanerAvailabilityDto.builder()
-                        .cleanerId(cleaner.getId())
+                        .cleanerId(cleanerId)
                         .name(cleaner.getName())
                         .vehicleId(cleaner.getVehicle().getId())
                         .availableTimeSlots(freeSlots)
@@ -77,12 +81,14 @@ public class BookingService {
         LocalDateTime startDateTime = LocalDateTime.of(request.getDate(), request.getStartTime());
         LocalDateTime endDateTime = startDateTime.plusHours(request.getDuration());
 
+        //TODO: find a way to not fetch everything
         List<Vehicle> vehicles = vehicleRepository.findAll();
 
         List<Cleaner> selectedCleaners = null;
 
         for (Vehicle vehicle : vehicles) {
             List<Cleaner> availableCleanersInVehicle = new ArrayList<>();
+            // TODO fix n+1
             for (Cleaner cleaner : vehicle.getCleaners()) {
                 List<Booking> conflicts = bookingRepository.findConflictingBookings(
                         List.of(cleaner.getId()),

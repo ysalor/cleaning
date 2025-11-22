@@ -72,8 +72,9 @@ class BookingServiceTest {
                 .duration(2)
                 .build();
 
-        when(cleanerRepository.findAll()).thenReturn(List.of(cleaner));
+        when(cleanerRepository.findAllIds()).thenReturn(List.of(cleaner.getId()));
         when(bookingRepository.findActiveBookingsForCleaner(any(), any(), any())).thenReturn(Collections.emptyList());
+        when(cleanerRepository.getReferenceById(cleaner.getId())).thenReturn(cleaner);
 
         List<CleanerAvailabilityDto> result = bookingService.checkAvailability(request);
 
@@ -96,7 +97,7 @@ class BookingServiceTest {
                 .endDateTime(LocalDateTime.of(2023, 11, 23, 11, 30))
                 .build();
 
-        when(cleanerRepository.findAll()).thenReturn(List.of(cleaner));
+        when(cleanerRepository.findAllIds()).thenReturn(List.of(cleaner.getId()));
         when(bookingRepository.findActiveBookingsForCleaner(eq(cleaner.getId()), any(), any()))
                 .thenReturn(List.of(existing));
 
@@ -117,9 +118,11 @@ class BookingServiceTest {
                 .endDateTime(LocalDateTime.of(2023, 11, 23, 12, 0))
                 .build();
 
-        when(cleanerRepository.findAll()).thenReturn(List.of(cleaner));
+        when(cleanerRepository.findAllIds()).thenReturn(List.of(cleaner.getId()));
         when(bookingRepository.findActiveBookingsForCleaner(eq(cleaner.getId()), any(), any()))
                 .thenReturn(new ArrayList<>(List.of(existing)));
+        when(cleanerRepository.getReferenceById(cleaner.getId())).thenReturn(cleaner);
+
 
         List<CleanerAvailabilityDto> result = bookingService.checkAvailability(request);
 
