@@ -98,6 +98,21 @@ class BookingControllerIntegrationTest {
                 .andExpect(jsonPath("$[0].availableTimeSlots[0]").value("10:00 - 12:00"));
     }
 
+    @Test
+    void checkAvailability_ShouldReturnBadRequest_WhenDateIsFriday() throws Exception {
+        LocalDate friday = nextFriday(LocalDate.now());
+
+        AvailabilityRequest request = AvailabilityRequest.builder()
+                .date(friday)
+                .startTime(LocalTime.of(10, 0))
+                .duration(2)
+                .build();
+
+        mockMvc.perform(post("/api/bookings/availability")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isBadRequest());
+    }
 
     @Test
     void createBooking_ShouldCreateBooking_WhenValidRequestAndCleanersAvailable() throws Exception {
@@ -125,6 +140,36 @@ class BookingControllerIntegrationTest {
         Booking booking = all.get(0);
         assertThat(booking.getCustomerName()).isEqualTo("John Doe");
         assertThat(booking.getCleaners()).hasSize(2);
+    }
+
+    @Test
+    void createBooking_ShouldReturnBadRequest_WhenNoCleanersAvailable() throws Exception {
+        LocalDate date = nextNonFriday(LocalDate.now().plusDays(1));
+        LocalTime time = LocalTime.of(10, 0);
+
+        // Create a conflicting booking that occupies all cleaners
+        List<Cleaner> allCleaners = cleanerRepository.findAll();
+        Booking conflictingBooking = Booking.builder()
+                .startDateTime(LocalDateTime.of(date, time))
+                .endDateTime(LocalDateTime.of(date, time.plusHours(2)))
+                .durationHours(2)
+                .customerName("Conflict Holder")
+                .cleaners(new ArrayList<>(allCleaners))
+                .build();
+        bookingRepository.save(conflictingBooking);
+
+        BookingRequest request = BookingRequest.builder()
+                .date(date)
+                .startTime(time)
+                .duration(2)
+                .cleanerCount(1) // Even 1 cleaner is not available
+                .customerName("Rejected Customer")
+                .build();
+
+        mockMvc.perform(post("/api/bookings")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isBadRequest());
     }
 
     @Test
@@ -165,9 +210,30 @@ class BookingControllerIntegrationTest {
         assertThat(updated.getStartDateTime()).isEqualTo(LocalDateTime.of(date, LocalTime.of(14, 0, 0)));
     }
 
+    @Test
+    void updateBooking_ShouldReturnNotFound_WhenBookingDoesNotExist() throws Exception {
+        BookingUpdateRequest request = BookingUpdateRequest.builder()
+                .date(LocalDate.now())
+                .startTime(LocalTime.of(12, 0))
+                .build();
+
+        mockMvc.perform(put("/api/bookings/{id}", 99999L)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isNotFound());
+    }
+
     private LocalDate nextNonFriday(LocalDate start) {
         LocalDate date = start;
         while (date.getDayOfWeek() == DayOfWeek.FRIDAY) {
+            date = date.plusDays(1);
+        }
+        return date;
+    }
+
+    private LocalDate nextFriday(LocalDate start) {
+        LocalDate date = start;
+        while (date.getDayOfWeek() != DayOfWeek.FRIDAY) {
             date = date.plusDays(1);
         }
         return date;

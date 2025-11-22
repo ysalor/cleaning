@@ -58,10 +58,7 @@ class BookingServiceTest {
                 .date(LocalDate.of(2023, 11, 24)) // A Friday
                 .build();
 
-        List<CleanerAvailabilityDto> result = bookingService.checkAvailability(request);
-
-        assertTrue(result.isEmpty());
-        verify(cleanerRepository, never()).findAll();
+        assertThrows(BusinessException.class, () -> bookingService.checkAvailability(request));
     }
 
     @Test

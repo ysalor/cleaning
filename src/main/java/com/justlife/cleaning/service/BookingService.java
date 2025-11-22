@@ -31,6 +31,8 @@ public class BookingService {
 
     @Transactional(readOnly = true)
     public List<CleanerAvailabilityDto> checkAvailability(AvailabilityRequest request) {
+        validateRequest(request.getDate(), request.getStartTime(), request.getDuration());
+
         LocalDate date = request.getDate();
         
         if (date.getDayOfWeek() == DayOfWeek.FRIDAY) {
@@ -74,7 +76,7 @@ public class BookingService {
 
     @Transactional
     public BookingResponse createBooking(BookingRequest request) {
-        validateBookingRequest(request.getDate(), request.getStartTime(), request.getDuration(), request.getCleanerCount());
+        validateRequest(request.getDate(), request.getStartTime(), request.getDuration());
 
         LocalDateTime startDateTime = LocalDateTime.of(request.getDate(), request.getStartTime());
         LocalDateTime endDateTime = startDateTime.plusHours(request.getDuration());
@@ -127,7 +129,7 @@ public class BookingService {
         Booking booking = bookingRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Booking not found"));
 
-        validateBookingRequest(request.getDate(), request.getStartTime(), booking.getDurationHours(), booking.getCleaners().size());
+        validateRequest(request.getDate(), request.getStartTime(), booking.getDurationHours());
 
         LocalDateTime newStart = LocalDateTime.of(request.getDate(), request.getStartTime());
         LocalDateTime newEnd = newStart.plusHours(booking.getDurationHours());
@@ -152,21 +154,23 @@ public class BookingService {
         return mapToResponse(bookingRepository.save(booking));
     }
 
-    private void validateBookingRequest(LocalDate date, LocalTime time, int duration, int cleanerCount) {
+    private void validateRequest(LocalDate date, LocalTime time, Integer duration) {
         if (date.getDayOfWeek() == DayOfWeek.FRIDAY) {
             throw new BusinessException("We do not work on Fridays.");
         }
 
-        if (time.isBefore(WORK_START)) {
-            throw new BusinessException("Cannot start before " + WORK_START);
+        if (time != null ) {
+            if ( time.isBefore(WORK_START)) {
+                throw new BusinessException("Cannot start before " + WORK_START);
+            }
+
+            LocalTime endTime = time.plusHours(duration);
+            if (endTime.isAfter(WORK_END)) {
+                throw new BusinessException("Must finish before " + WORK_END);
+            }
         }
 
-        LocalTime endTime = time.plusHours(duration);
-        if (endTime.isAfter(WORK_END)) {
-            throw new BusinessException("Must finish before " + WORK_END);
-        }
-
-        if (duration != 2 && duration != 4) {
+        if (duration !=null && !duration.equals(2) && !duration.equals(4)) {
             throw new BusinessException("Duration must be 2 or 4 hours.");
         }
     }
