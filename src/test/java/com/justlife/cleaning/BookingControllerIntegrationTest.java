@@ -3,6 +3,8 @@ package com.justlife.cleaning;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.justlife.cleaning.dto.AvailabilityRequest;
 import com.justlife.cleaning.dto.BookingRequest;
+import com.justlife.cleaning.dto.BookingUpdateRequest;
+import com.justlife.cleaning.entity.Booking;
 import com.justlife.cleaning.entity.Cleaner;
 import com.justlife.cleaning.entity.Vehicle;
 import com.justlife.cleaning.repository.BookingRepository;
@@ -19,10 +21,14 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.DayOfWeek;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.util.ArrayList;
+import java.util.List;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -84,13 +90,87 @@ class BookingControllerIntegrationTest {
                 .duration(2)
                 .build();
 
-        // Assuming cleaner setup from BeforeEach is cleaner 1 and 2
         mockMvc.perform(post("/api/bookings/availability")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.length()").value(2)) // Both cleaners should be free
                 .andExpect(jsonPath("$[0].availableTimeSlots[0]").value("10:00 - 12:00"));
+    }
+
+
+    @Test
+    void createBooking_ShouldCreateBooking_WhenValidRequestAndCleanersAvailable() throws Exception {
+        LocalDate date = nextNonFriday(LocalDate.now().plusDays(1));
+
+        BookingRequest request = BookingRequest.builder()
+                .date(date)
+                .startTime(LocalTime.of(10, 0))
+                .duration(2)
+                .cleanerCount(2)
+                .customerName("John Doe")
+                .build();
+
+        mockMvc.perform(post("/api/bookings")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.id").isNumber())
+                .andExpect(jsonPath("$.customerName").value("John Doe"))
+                .andExpect(jsonPath("$.durationHours").value(2))
+                .andExpect(jsonPath("$.cleanerNames.length()").value(2));
+
+        List<Booking> all = bookingRepository.findAll();
+        assertThat(all).hasSize(1);
+        Booking booking = all.get(0);
+        assertThat(booking.getCustomerName()).isEqualTo("John Doe");
+        assertThat(booking.getCleaners()).hasSize(2);
+    }
+
+    @Test
+    void updateBooking_ShouldUpdateDateTime_WhenNoConflicts() throws Exception {
+        LocalDate date = nextNonFriday(LocalDate.now().plusDays(1));
+
+        BookingRequest request = BookingRequest.builder()
+                .date(date)
+                .startTime(LocalTime.of(10, 0))
+                .duration(2)
+                .cleanerCount(1)
+                .customerName("To Update")
+                .build();
+
+        String response = mockMvc.perform(post("/api/bookings")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isCreated())
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+
+        Booking created = objectMapper.readValue(response, Booking.class);
+        Long bookingId = created.getId();
+
+        BookingUpdateRequest updateRequest = BookingUpdateRequest.builder()
+                .date(date)
+                .startTime(LocalTime.of(14, 0))
+                .build();
+
+        mockMvc.perform(put("/api/bookings/{id}", bookingId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(updateRequest)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value(bookingId));
+
+        Booking updated = bookingRepository.findById(bookingId).orElseThrow();
+        assertThat(updated.getStartDateTime()).isEqualTo(LocalDateTime.of(date, LocalTime.of(14, 0, 0)));
+    }
+
+    private LocalDate nextNonFriday(LocalDate start) {
+        LocalDate date = start;
+        while (date.getDayOfWeek() == DayOfWeek.FRIDAY) {
+            date = date.plusDays(1);
+        }
+        return date;
     }
 
 }
