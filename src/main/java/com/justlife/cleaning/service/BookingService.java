@@ -81,8 +81,7 @@ public class BookingService {
         LocalDateTime startDateTime = LocalDateTime.of(request.getDate(), request.getStartTime());
         LocalDateTime endDateTime = startDateTime.plusHours(request.getDuration());
 
-        //TODO: find a way to not fetch everything
-        List<Vehicle> vehicles = vehicleRepository.findAll();
+        List<Vehicle> vehicles = vehicleRepository.findAllWithCleaners();
 
         List<Cleaner> selectedCleaners = null;
 

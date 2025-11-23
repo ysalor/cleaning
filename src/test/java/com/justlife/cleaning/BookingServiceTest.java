@@ -189,7 +189,7 @@ class BookingServiceTest {
                 .customerName("Test Customer")
                 .build();
 
-        when(vehicleRepository.findAll()).thenReturn(List.of(vehicle));
+        when(vehicleRepository.findAllWithCleaners()).thenReturn(List.of(vehicle));
         when(bookingRepository.findConflictingBookings(any(), any(), any())).thenReturn(Collections.emptyList());
         when(bookingRepository.save(any(Booking.class))).thenAnswer(invocation -> {
             Booking b = invocation.getArgument(0);
@@ -219,7 +219,7 @@ class BookingServiceTest {
                 .cleaners(List.of(cleaner))
                 .build();
 
-        when(vehicleRepository.findAll()).thenReturn(List.of(v));
+        when(vehicleRepository.findAllWithCleaners()).thenReturn(List.of(v));
         // Always conflict so that cleaner is never available
         when(bookingRepository.findConflictingBookings(any(), any(), any()))
                 .thenReturn(List.of(Booking.builder().id(99L).build()));
@@ -258,6 +258,7 @@ class BookingServiceTest {
         assertEquals(LocalDateTime.of(newDate, newTime.plusHours(2)), response.getEndDateTime());
     }
 
+    @Test
     void updateBooking_ShouldThrowException_WhenConflictingBookingExists() {
         Long bookingId = 1L;
         LocalDate newDate = LocalDate.of(2023, 11, 23);
