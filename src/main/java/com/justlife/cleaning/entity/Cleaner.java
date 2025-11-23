@@ -6,6 +6,9 @@ import java.util.ArrayList;
 import java.util.List;
 
 @Entity
+@Table(indexes = {
+    @Index(name = "idx_cleaner_vehicle_id", columnList = "vehicle_id")
+})
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
