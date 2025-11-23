@@ -82,43 +82,11 @@ public class BookingService {
         LocalDateTime endDateTime = startDateTime.plusHours(request.getDuration());
 
         List<Vehicle> vehicles = vehicleRepository.findAllWithCleaners();
+        Map<Long, List<Booking>> conflictsByCleaner = groupConflictsByCleaner(
+                vehicles, startDateTime, endDateTime);
 
-        List<Long> allCleanerIds = vehicles.stream()
-                .flatMap(vehicle -> vehicle.getCleaners().stream())
-                .map(Cleaner::getId)
-                .toList();
-
-        List<Booking> allConflicts = bookingRepository.findConflictingBookings(
-                allCleanerIds,
-                startDateTime.minusMinutes(BREAK_MINUTES), // Check break before
-                endDateTime.plusMinutes(BREAK_MINUTES)     // Check break after
-        );
-
-        Map<Long, List<Booking>> conflictsByCleaner = new HashMap<>();
-        for (Booking conflict : allConflicts) {
-            for (Cleaner cleaner : conflict.getCleaners()) {
-                conflictsByCleaner.computeIfAbsent(cleaner.getId(), k -> new ArrayList<>())
-                        .add(conflict);
-            }
-        }
-
-        List<Cleaner> selectedCleaners = null;
-
-        for (Vehicle vehicle : vehicles) {
-            List<Cleaner> availableCleanersInVehicle = new ArrayList<>();
-            for (Cleaner cleaner : vehicle.getCleaners()) {
-                List<Booking> conflicts = conflictsByCleaner.getOrDefault(cleaner.getId(), Collections.emptyList());
-
-                if (conflicts.isEmpty()) {
-                    availableCleanersInVehicle.add(cleaner);
-                }
-            }
-
-            if (availableCleanersInVehicle.size() >= request.getCleanerCount()) {
-                selectedCleaners = availableCleanersInVehicle.subList(0, request.getCleanerCount());
-                break;
-            }
-        }
+        List<Cleaner> selectedCleaners = selectAvailableCleaners(
+                vehicles, conflictsByCleaner, request.getCleanerCount());
 
         if (selectedCleaners == null) {
             throw new BusinessException("No available cleaners found for the requested time and count constraint.");
@@ -249,6 +217,48 @@ public class BookingService {
                             .add(booking));
         }
         return map;
+    }
+
+    private Map<Long, List<Booking>> groupConflictsByCleaner(
+            List<Vehicle> vehicles, LocalDateTime startDateTime, LocalDateTime endDateTime) {
+        List<Long> allCleanerIds = vehicles.stream()
+                .flatMap(vehicle -> vehicle.getCleaners().stream())
+                .map(Cleaner::getId)
+                .toList();
+
+        List<Booking> allConflicts = bookingRepository.findConflictingBookings(
+                allCleanerIds,
+                startDateTime.minusMinutes(BREAK_MINUTES), // Check break before
+                endDateTime.plusMinutes(BREAK_MINUTES)       // Check break after
+        );
+
+        Map<Long, List<Booking>> conflictsByCleaner = new HashMap<>();
+        for (Booking conflict : allConflicts) {
+            for (Cleaner cleaner : conflict.getCleaners()) {
+                conflictsByCleaner.computeIfAbsent(cleaner.getId(), k -> new ArrayList<>())
+                        .add(conflict);
+            }
+        }
+        return conflictsByCleaner;
+    }
+
+    private List<Cleaner> selectAvailableCleaners(
+            List<Vehicle> vehicles, Map<Long, List<Booking>> conflictsByCleaner, int requiredCount) {
+        for (Vehicle vehicle : vehicles) {
+            List<Cleaner> availableCleanersInVehicle = new ArrayList<>();
+            for (Cleaner cleaner : vehicle.getCleaners()) {
+                List<Booking> conflicts = conflictsByCleaner.getOrDefault(cleaner.getId(), Collections.emptyList());
+
+                if (conflicts.isEmpty()) {
+                    availableCleanersInVehicle.add(cleaner);
+                }
+            }
+
+            if (availableCleanersInVehicle.size() >= requiredCount) {
+                return availableCleanersInVehicle.subList(0, requiredCount);
+            }
+        }
+        return null;
     }
 
     private BookingResponse mapToResponse(Booking booking) {
