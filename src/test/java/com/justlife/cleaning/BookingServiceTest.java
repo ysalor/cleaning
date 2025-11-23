@@ -221,8 +221,13 @@ class BookingServiceTest {
 
         when(vehicleRepository.findAllWithCleaners()).thenReturn(List.of(v));
         // Always conflict so that cleaner is never available
+        // The conflict must include the cleaner in its cleaners list for the grouping logic to work
+        Booking conflictingBooking = Booking.builder()
+                .id(99L)
+                .cleaners(List.of(cleaner))
+                .build();
         when(bookingRepository.findConflictingBookings(any(), any(), any()))
-                .thenReturn(List.of(Booking.builder().id(99L).build()));
+                .thenReturn(List.of(conflictingBooking));
 
         assertThrows(BusinessException.class, () -> bookingService.createBooking(request));
     }

@@ -83,17 +83,31 @@ public class BookingService {
 
         List<Vehicle> vehicles = vehicleRepository.findAllWithCleaners();
 
+        List<Long> allCleanerIds = vehicles.stream()
+                .flatMap(vehicle -> vehicle.getCleaners().stream())
+                .map(Cleaner::getId)
+                .toList();
+
+        List<Booking> allConflicts = bookingRepository.findConflictingBookings(
+                allCleanerIds,
+                startDateTime.minusMinutes(BREAK_MINUTES), // Check break before
+                endDateTime.plusMinutes(BREAK_MINUTES)     // Check break after
+        );
+
+        Map<Long, List<Booking>> conflictsByCleaner = new HashMap<>();
+        for (Booking conflict : allConflicts) {
+            for (Cleaner cleaner : conflict.getCleaners()) {
+                conflictsByCleaner.computeIfAbsent(cleaner.getId(), k -> new ArrayList<>())
+                        .add(conflict);
+            }
+        }
+
         List<Cleaner> selectedCleaners = null;
 
         for (Vehicle vehicle : vehicles) {
             List<Cleaner> availableCleanersInVehicle = new ArrayList<>();
-            // TODO fix n+1
             for (Cleaner cleaner : vehicle.getCleaners()) {
-                List<Booking> conflicts = bookingRepository.findConflictingBookings(
-                        List.of(cleaner.getId()),
-                        startDateTime.minusMinutes(BREAK_MINUTES), // Check break before
-                        endDateTime.plusMinutes(BREAK_MINUTES)     // Check break after
-                );
+                List<Booking> conflicts = conflictsByCleaner.getOrDefault(cleaner.getId(), Collections.emptyList());
 
                 if (conflicts.isEmpty()) {
                     availableCleanersInVehicle.add(cleaner);
